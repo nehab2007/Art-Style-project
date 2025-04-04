@@ -1,56 +1,65 @@
 import os
 import torch
-import numpy as np
 from PIL import Image
-from keras.applications import VGG19
-from keras.models import Model
-from keras.utils import img_to_array, load_img
-from keras.applications.vgg19 import preprocess_input
-
 from diffusers import StableDiffusionImg2ImgPipeline
-from feature_extraction import load_style_features
+from torchvision import transforms
+
+# Optional: Style prompt presets
+PREDEFINED_STYLES = {
+    "Van Gogh - Starry Night": "a painting in the style of Van Gogh's Starry Night",
+    "Da Vinci - Mona Lisa": "a portrait inspired by Da Vinci's Mona Lisa",
+    "Picasso - Cubism": "an abstract cubist artwork like Picasso",
+    "Claude Monet - Impressionism": "an impressionist painting like Claude Monet",
+    "Salvador Dali - Surrealism": "a surrealist piece like Salvador Dali",
+    "Cyberpunk": "a futuristic cyberpunk-style digital painting"
+}
+
 from diffusers import StableDiffusionPipeline
+from transformers import CLIPFeatureExtractor
+import torch
 
-# --- Load Stable Diffusion model with Hugging Face token ---
-HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN", "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")
+from diffusers import StableDiffusionPipeline
+from transformers import CLIPFeatureExtractor
+import torch
 
-pipe = StableDiffusionPipeline.from_pretrained(
-    "CompVis/stable-diffusion-v1-4",
-    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    use_auth_token=True
-).to("cuda" if torch.cuda.is_available() else "cpu")
+def load_model():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model_id = "Jiali/stable-diffusion-1.5"
 
+    print("Loading Stable Diffusion model without safety checker...")
+    pipe = StableDiffusionPipeline.from_pretrained(
+        model_id,
+        safety_checker=None,  # disables NSFW filtering
+        feature_extractor=CLIPFeatureExtractor.from_pretrained("openai/clip-vit-base-patch32"),
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+    )
+    pipe.to(device)
+    return pipe
 
-# --- VGG19-based Neural Style Transfer (for predefined styles) ---
-def neural_style_transfer(content_image_path, style_name):
-    content_img = load_img(content_image_path, target_size=(224, 224))
-    content_array = img_to_array(content_img)
-    content_array = np.expand_dims(content_array, axis=0)
-    content_array = preprocess_input(content_array)
+def apply_style(input_image_path, selected_style, user_prompt):
+    pipe = load_model()
+    
+    # Load and resize image
+    init_image = Image.open(input_image_path).convert("RGB").resize((512, 512))
+    
+    # Build prompt
+    style_prompt = PREDEFINED_STYLES.get(selected_style, "")
+    full_prompt = f"{style_prompt}. {user_prompt}".strip()
+    print(f"Final Prompt: {full_prompt}")
+    
+    # Generate output
+    output = pipe(prompt=full_prompt, image=init_image, strength=0.8, guidance_scale=7.5).images[0]
+    
+    # Save output
+    os.makedirs("output", exist_ok=True)
+    output_path = os.path.join("output", "styled_output.png")
+    output.save(output_path)
+    print(f"Styled image saved to: {output_path}")
+    
+    return output_path
 
-    # Load style features
-    style_features = load_style_features(style_name)  # shape: (1, 14, 14, 512)
-
-    # Just blend features (simple version)
-    # This is not full style transfer but a basic filter blending
-    blended_array = 0.5 * content_array  # Dummy combination
-
-    # Decode array back to image
-    blended_array = np.clip(blended_array[0], 0, 255).astype('uint8')
-    blended_image = Image.fromarray(blended_array)
-
-    return blended_image
-
-# --- Stable Diffusion-based Transfer (for custom prompts) ---
-def prompt_based_style_transfer(uploaded_image_path, prompt):
-    init_image = Image.open(uploaded_image_path).convert("RGB").resize((512, 512))
-    result = pipe(prompt=prompt, image=init_image, strength=0.7, guidance_scale=7.5)
-    styled_image = result.images[0]
-    return styled_image
-
-# --- Master function to handle both methods ---
-def apply_style(content_image_path, style_or_prompt, is_prompt=False):
-    if is_prompt:
-        return prompt_based_style_transfer(content_image_path, style_or_prompt)
-    else:
-        return neural_style_transfer(content_image_path, style_or_prompt)
+if __name__ == "__main__":
+    test_image = "input_image_path"  # Replace with dynamic input path
+    test_style = "Claude Monet - Impressionism"
+    test_prompt = "add cherry blossom trees and soft morning light"
+    apply_style(test_image, test_style, test_prompt)
