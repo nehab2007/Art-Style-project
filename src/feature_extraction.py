@@ -1,48 +1,59 @@
-import tensorflow as tf
-import numpy as np
 import os
-from image_processing import load_img
+import pickle
+import numpy as np
+import tensorflow as tf
+from keras.applications import VGG19
+from keras.utils import load_img, img_to_array
+from keras.models import Model
 
-# Load the pre-trained VGG19 model without the classification layers
-base_model = tf.keras.applications.VGG19(include_top=False, weights='imagenet')
+def extract_style_features(style_image_path, style_name, output_dir="assets/styles_features"):
+    """Extract and save style features from a given style image."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-def extract_features(image_path):
-    """
-    Extracts features from an image using VGG19.
+    model = VGG19(weights='imagenet', include_top=False)
+    feature_extractor = Model(
+        inputs=model.input,
+        outputs=[model.get_layer("block5_conv4").output]
+    )
 
-    Args:
-        image_path (str): Path to the image file.
+    # Load and preprocess style image
+    img = load_img(style_image_path, target_size=(224, 224))
+    img_array = img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = tf.keras.applications.vgg19.preprocess_input(img_array)
 
-    Returns:
-        np.ndarray: Extracted feature vector.
-    """
-    image = load_img(image_path, max_dim=224)  # Resize to 224x224 for VGG19
-    features = base_model.predict(image)
-    return np.squeeze(features)  # Remove batch dimension
+    # Extract style features
+    extracted_features = feature_extractor.predict(img_array)
 
-# Define path for predefined images
-style_images_path = 'Art style transfer project/assets/styles/'
-output_features_path = 'Art style transfer project/assets/features/'
+    # Save extracted features to a pickle file
+    feature_file = os.path.join(output_dir, f"{style_name.replace(' ', '_')}.pkl")
+    with open(feature_file, 'wb') as f:
+        pickle.dump(extracted_features, f)
 
-# Ensure output directory exists
-os.makedirs(output_features_path, exist_ok=True)
+    print(f"[✔] Extracted features saved: {feature_file}")
+    return feature_file
 
-# List all style images
-style_images = {
-    'Van_Gogh': 'Starry_Night.jpg',
-    'Da_Vinci': 'Mona_Lisa.jpg',
-    'Picasso': 'Cubism.jpg',
-    'Monet': 'Impressionism.jpg',
-    'Dali': 'Surrealism.jpg',
-    'Cyberpunk': 'Cyberpunk.jpg'
+def load_style_features(style_name, output_dir="assets/styles_features"):
+    """Load style features from the pickle file."""
+    feature_file = os.path.join(output_dir, f"{style_name.replace(' ', '_')}.pkl")
+    if os.path.exists(feature_file):
+        with open(feature_file, 'rb') as f:
+            extracted_features = pickle.load(f)
+        return extracted_features
+    else:
+        raise ValueError(f"[✘] No extracted features found for {style_name}.")
+
+# Automatically extract all predefined styles
+styles = {
+    "Van Gogh - Starry Night": "assets/styles/Van Gogh - Starry Night.jpg",
+    "Salvador Dali - Surrealism": "assets/styles/Salvador Dali - Surrealism.jpg",
+    "Picasso - Cubism": "assets/styles/Picasso - Cubism.jpg",
+    "Da Vinci - Mona Lisa": "assets/styles/Da Vinci - Mona Lisa.jpg",
+    "Claude Monet - Impressionism": "assets/styles/Claude Monet - Impressionism.jpg",
+    "Cyberpunk": "assets/styles/Cyberpunk.jpg"
 }
 
-# Extract and save features
-for style, filename in style_images.items():
-    img_path = os.path.join(style_images_path, filename)
-    if os.path.exists(img_path):
-        features = extract_features(img_path)
-        np.save(os.path.join(output_features_path, f"{style}_features.npy"), features)
-        print(f"Extracted and saved features for {style}")
-    else:
-        print(f"Image not found: {img_path}")
+if __name__ == "__main__":
+    for style_name, image_path in styles.items():
+        extract_style_features(image_path, style_name)
