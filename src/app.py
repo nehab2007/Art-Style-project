@@ -1,84 +1,95 @@
-import numpy as np
-import tensorflow as tf
-from keras.applications import VGG19
-from keras.models import Model
-from keras.utils import load_img, img_to_array
-from feature_extraction import load_style_features
-from diffusers import StableDiffusionPipeline
-import torch
-from PIL import Image
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+from PIL import Image, ImageTk
 import os
+from style_transfer import apply_style
 
-# Constants
-IMG_HEIGHT = 224
-IMG_WIDTH = 224
+# Initialize main window
+root = tk.Tk()
+root.title("AI Art Style Transfer")
+root.geometry("1200x700")
+root.configure(bg="#1E1E1E")
 
-def gram_matrix(tensor):
-    result = tf.linalg.einsum('bijc,bijd->bcd', tensor, tensor)
-    input_shape = tf.shape(tensor)
-    num_locations = tf.cast(input_shape[1] * input_shape[2], tf.float32)
-    return result / num_locations
+# Load default images
+default_img = Image.new("RGB", (300, 300), color=(50, 50, 50))
+default_img_tk = ImageTk.PhotoImage(default_img)
 
-def preprocess_image(image_path):
-    img = load_img(image_path, target_size=(IMG_HEIGHT, IMG_WIDTH))
-    img_array = img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    return tf.keras.applications.vgg19.preprocess_input(img_array)
+default_output_img = Image.new("RGB", (300, 300), color=(30, 30, 30))
+default_output_img_tk = ImageTk.PhotoImage(default_output_img)
 
-def deprocess_image(x):
-    x = x.reshape((IMG_HEIGHT, IMG_WIDTH, 3))
-    x[:, :, 0] += 103.939
-    x[:, :, 1] += 116.779
-    x[:, :, 2] += 123.68
-    x = x[:, :, ::-1]
-    return np.clip(x, 0, 255).astype('uint8')
+# File path variable
+selected_image_path = None
+predefined_styles = ["Van Gogh - Starry Night", "Da Vinci - Mona Lisa", "Picasso - Cubism", 
+                     "Claude Monet - Impressionism", "Salvador Dali - Surrealism", "Cyberpunk"]
 
-def neural_style_transfer(content_path, style_name, num_iterations=100, content_weight=1e3, style_weight=1e-2):
-    # Load content and style features
-    content_image = preprocess_image(content_path)
-    style_features = load_style_features(style_name)
+def select_image():
+    global selected_image_path, preview_label
+    file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg;*.png;*.jpeg")])
+    if file_path:
+        selected_image_path = file_path
+        img = Image.open(file_path).resize((300, 300))
+        img_tk = ImageTk.PhotoImage(img)
+        preview_label.config(image=img_tk)
+        preview_label.image = img_tk
 
-    # Load VGG19
-    model = VGG19(include_top=False, weights='imagenet')
-    outputs = [model.get_layer(name).output for name in ['block5_conv2', 'block5_conv4']]
-    feature_extractor = Model(inputs=model.input, outputs=outputs)
+def process_image():
+    global selected_image_path, user_input, style_var
+    if not selected_image_path:
+        messagebox.showerror("Error", "Please select an image first")
+        return
 
-    content_target, _ = feature_extractor.predict(content_image)
-    style_target = gram_matrix(style_features)
+    selected_style = style_var.get()
+    user_text = user_input.get()
+    user_prompt = user_input.get()
 
-    generated_image = tf.Variable(content_image, dtype=tf.float32)
+    if selected_style == "Custom" and not user_text:
+        messagebox.showerror("Error", "Please enter a style description")
+        return
 
-    optimizer = tf.optimizers.Adam(learning_rate=5.0)
+    applied_style = user_text if selected_style == "Custom" else selected_style
+    styled_image = apply_style(selected_image_path, applied_style, user_prompt)
 
-    @tf.function
-    def train_step():
-        with tf.GradientTape() as tape:
-            content_output, style_output = feature_extractor(generated_image)
-            content_loss = tf.reduce_mean((content_output - content_target) ** 2)
-            gram_generated = gram_matrix(style_output)
-            style_loss = tf.reduce_mean((gram_generated - style_target) ** 2)
-            total_loss = content_weight * content_loss + style_weight * style_loss
-
-        grad = tape.gradient(total_loss, generated_image)
-        optimizer.apply_gradients([(grad, generated_image)])
-        generated_image.assign(tf.clip_by_value(generated_image, -128.0, 128.0))
-
-    for i in range(num_iterations):
-        train_step()
-
-    final_img = deprocess_image(generated_image.numpy())
-    return Image.fromarray(final_img)
-
-def apply_prompt_style(image_path, prompt):
-    pipe = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4", torch_dtype=torch.float16)
-    pipe = pipe.to("cuda" if torch.cuda.is_available() else "cpu")
-
-    original_image = Image.open(image_path).convert("RGB").resize((512, 512))
-    result = pipe(prompt=prompt, image=original_image).images[0]
-    return result
-
-def apply_style(content_image_path, style_or_prompt, use_prompt=False):
-    if use_prompt:
-        return apply_prompt_style(content_image_path, style_or_prompt)
+    if isinstance(styled_image, Image.Image):
+        # Save & Display result
+        os.makedirs("output", exist_ok=True)
+        output_path = os.path.join("output", "styled_image.jpg")
+        styled_image.save(output_path)
+        styled_img_tk = ImageTk.PhotoImage(styled_image.resize((300, 300)))
+        output_label.config(image=styled_img_tk)
+        output_label.image = styled_img_tk
+        messagebox.showinfo("Success", f"Style Applied: {applied_style}\nImage saved to {output_path}")
     else:
-        return neural_style_transfer(content_image_path, style_or_prompt)
+        messagebox.showerror("Error", "Failed to apply style transfer")
+
+# UI Elements
+frame = tk.Frame(root, bg="#2A2A2A", padx=20, pady=20, relief="solid", bd=2)
+frame.pack(pady=20)
+
+title = tk.Label(frame, text="AI Art Style Transfer", font=("Helvetica", 24, "bold"), fg="#D4D4D4", bg="#2A2A2A")
+title.grid(row=0, column=0, columnspan=2, pady=10)
+
+# Image display labels
+preview_label = tk.Label(frame, image=default_img_tk, bg="#3A3A3A", relief="ridge", bd=2)
+preview_label.grid(row=1, column=0, padx=15, pady=10)
+
+output_label = tk.Label(frame, image=default_output_img_tk, bg="#3A3A3A", relief="ridge", bd=2)
+output_label.grid(row=1, column=1, padx=15, pady=10)
+
+btn_select = tk.Button(frame, text="Select Image", font=("Helvetica", 14), command=select_image, bg="#0078D4", fg="white", padx=15, pady=8, relief="flat", cursor="hand2")
+btn_select.grid(row=2, column=0, columnspan=2, pady=10)
+
+# Dropdown for predefined styles
+style_var = tk.StringVar()
+style_var.set(predefined_styles[0])
+style_menu = ttk.Combobox(frame, textvariable=style_var, values=predefined_styles + ["Custom"], font=("Helvetica", 12), state="readonly", width=40)
+style_menu.grid(row=3, column=0, columnspan=2, pady=10)
+
+# Text input for custom styles
+user_input = tk.Entry(frame, font=("Helvetica", 12), width=45, relief="solid", bd=1, fg="#D4D4D4", bg="#3A3A3A")
+user_input.grid(row=4, column=0, columnspan=2, pady=10)
+user_input.insert(0, "Describe the style you want...")
+
+btn_process = tk.Button(frame, text="Apply Style", font=("Helvetica", 14), command=process_image, bg="#28A745", fg="white", padx=15, pady=8, relief="flat", cursor="hand2")
+btn_process.grid(row=5, column=0, columnspan=2, pady=20)
+
+root.mainloop()
