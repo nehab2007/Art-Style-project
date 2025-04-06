@@ -1,65 +1,68 @@
-import os
 import torch
-from PIL import Image
 from diffusers import StableDiffusionImg2ImgPipeline
-from torchvision import transforms
-
-# Optional: Style prompt presets
-PREDEFINED_STYLES = {
-    "Van Gogh - Starry Night": "a painting in the style of Van Gogh's Starry Night",
-    "Da Vinci - Mona Lisa": "a portrait inspired by Da Vinci's Mona Lisa",
-    "Picasso - Cubism": "an abstract cubist artwork like Picasso",
-    "Claude Monet - Impressionism": "an impressionist painting like Claude Monet",
-    "Salvador Dali - Surrealism": "a surrealist piece like Salvador Dali",
-    "Cyberpunk": "a futuristic cyberpunk-style digital painting"
-}
-
-from diffusers import StableDiffusionPipeline
-from transformers import CLIPFeatureExtractor
-import torch
-
-from diffusers import StableDiffusionPipeline
-from transformers import CLIPFeatureExtractor
-import torch
+from PIL import Image
+import os
 
 def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_id = "Jiali/stable-diffusion-1.5"
+    model_id = "runwayml/stable-diffusion-1.5"
 
-    print("Loading Stable Diffusion model without safety checker...")
-    pipe = StableDiffusionPipeline.from_pretrained(
-        model_id,
-        safety_checker=None,  # disables NSFW filtering
-        feature_extractor=CLIPFeatureExtractor.from_pretrained("openai/clip-vit-base-patch32"),
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
-    )
-    pipe.to(device)
+    print("[INFO] Loading Stable Diffusion Img2Img model...")
+    pipe = StableDiffusionImg2ImgPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", use_auth_token=True)
+    pipe = pipe.to(device)
+    pipe.safety_checker = None  # Disable safety checker just in case
     return pipe
+
+PREDEFINED_STYLES = {
+    "Van Gogh - Starry Night": "inspired by Van Gogh's Starry Night, with swirling brushstrokes and vibrant blues and yellows.",
+    "Da Vinci - Mona Lisa": "in the style of Da Vinci’s Mona Lisa, with soft shading and Renaissance portrait techniques.",
+    "Picasso - Cubism": "inspired by Picasso’s Cubism, with geometric abstraction and bold color contrasts.",
+    "Claude Monet - Impressionism": "in Monet’s Impressionist style, with soft colors and delicate brush strokes.",
+    "Salvador Dali - Surrealism": "in the surrealist style of Salvador Dali, featuring dreamlike, distorted elements.",
+    "Cyberpunk": "in a futuristic cyberpunk aesthetic, with neon lights and dark dystopian themes."
+}
+
+def preprocess_image(image_path, target_size=(512, 512)):
+    print(f"[INFO] Preprocessing image: {image_path}")
+    image = Image.open(image_path).convert("RGB")
+    image = image.resize(target_size, Image.Resampling.LANCZOS)
+    return image
 
 def apply_style(input_image_path, selected_style, user_prompt):
     pipe = load_model()
-    
-    # Load and resize image
-    init_image = Image.open(input_image_path).convert("RGB").resize((512, 512))
-    
-    # Build prompt
-    style_prompt = PREDEFINED_STYLES.get(selected_style, "")
-    full_prompt = f"{style_prompt}. {user_prompt}".strip()
-    print(f"Final Prompt: {full_prompt}")
-    
-    # Generate output
-    output = pipe(prompt=full_prompt, image=init_image, strength=0.8, guidance_scale=7.5).images[0]
-    
-    # Save output
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Preprocess image
+    init_image = preprocess_image(input_image_path)
+
+    # Compose prompt
+    style_description = PREDEFINED_STYLES.get(selected_style, f"in {selected_style} style")
+    full_prompt = f"{style_description} {user_prompt}" if user_prompt else style_description
+    print(f"[INFO] Final Prompt: {full_prompt}")
+
+    # Generate styled image
+    try:
+        output = pipe(
+            prompt=full_prompt,
+            image=init_image,
+            strength=0.7,  # Try 0.5–0.8 range
+            guidance_scale=6.0,
+            num_inference_steps=50
+        ).images[0]
+    except Exception as e:
+        print(f"[ERROR] Generation failed: {e}")
+        return None
+
+    # Save styled output
     os.makedirs("output", exist_ok=True)
-    output_path = os.path.join("output", "styled_output.png")
+    output_path = os.path.join("output", "styled_image.png")
     output.save(output_path)
-    print(f"Styled image saved to: {output_path}")
-    
+    print(f"[SUCCESS] Styled image saved at: {output_path}")
+
     return output_path
 
 if __name__ == "__main__":
-    test_image = "input_image_path"  # Replace with dynamic input path
-    test_style = "Claude Monet - Impressionism"
-    test_prompt = "add cherry blossom trees and soft morning light"
+    test_image = "test_input.jpg"  # Replace with an actual file to test
+    test_style = "Cyberpunk"
+    test_prompt = "Add glowing neon outlines"
     apply_style(test_image, test_style, test_prompt)
