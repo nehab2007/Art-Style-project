@@ -3,6 +3,7 @@ from diffusers import StableDiffusionImg2ImgPipeline
 from PIL import Image
 import numpy as np
 import os
+from skimage.metrics import structural_similarity as ssim
 
 def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -71,6 +72,11 @@ def apply_style(input_image_path, selected_style, user_prompt):
     print("\n[AFTER]")
     print(after_matrix[:5, :5])
 
+    # === SSIM Calculation ===
+    before_gray = np.array(init_image.convert("L"))
+    after_gray = np.array(output.convert("L"))
+    score, _ = ssim(before_gray, after_gray, full=True)
+    print(f"\n[STRUCTURAL SIMILARITY INDEX (SSIM)]: {score:.4f}")
     return output_path
 
 if __name__ == "__main__":
