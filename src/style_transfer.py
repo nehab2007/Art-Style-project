@@ -1,6 +1,7 @@
 import torch
 from diffusers import StableDiffusionImg2ImgPipeline
 from PIL import Image
+import numpy as np
 import os
 
 def load_model():
@@ -45,7 +46,7 @@ def apply_style(input_image_path, selected_style, user_prompt):
         output = pipe(
             prompt=full_prompt,
             image=init_image,
-            strength=0.7,  # Try 0.5–0.8 range
+            strength=0.55,  # Try 0.5–0.8 range
             guidance_scale=6.0,
             num_inference_steps=50
         ).images[0]
@@ -58,6 +59,17 @@ def apply_style(input_image_path, selected_style, user_prompt):
     output_path = os.path.join("output", "styled_image.png")
     output.save(output_path)
     print(f"[SUCCESS] Styled image saved at: {output_path}")
+
+    # === Evolution Matrix (Only 5x5 for brevity) ===
+    before_matrix = np.array(init_image)
+    after_matrix = np.array(output)
+
+    print("\n[EVOLUTION MATRIX SAMPLE] (first 5x5 pixels only):")
+    print("\n[BEFORE]")
+    print(before_matrix[:5, :5])
+
+    print("\n[AFTER]")
+    print(after_matrix[:5, :5])
 
     return output_path
 
