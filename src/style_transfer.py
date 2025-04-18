@@ -47,7 +47,7 @@ def apply_style(input_image_path, selected_style, user_prompt):
         output = pipe(
             prompt=full_prompt,
             image=init_image,
-            strength=0.45,  # Try 0.5–0.8 range
+            strength=0.43,  # Try 0.5–0.8 range
             guidance_scale=6.0,
             num_inference_steps=50
         ).images[0]
